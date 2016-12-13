@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <script src='http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js'></script>
+    <link rel="stylesheet" type="text/css" href="https://rawgit.com/LiamWalshWeb/Terminal-CSS/master/css/terminal.css">
+    <script>
+        $(document).ready(function () {
+            if (!("WebSocket" in window)) {
+                alert("Sorry, the build of your browser does not support WebSockets.");
+                return;
+            }
+
+            var ws = new WebSocket("ws://localhost:5000/tweets");
+
+            ws.onmessage = function (evt) {
+                var data = JSON.parse(evt.data);
+                var p = $("<div class='tweet' style='display:none'><div class='content'><a class='main-screenname' href='http://www.twitter.com/" + data.user.screen_name + "/status/" + data.id + "' target='_blank'>" + data.user.screen_name + "</a> " + data.text + "</div></div>");
+                if ($('#tweets div.tweet').size() > 15) {
+                    $('#tweets div.tweet:last').slideDown(100, function () {
+                        $(this).remove();
+                    });
+                }
+                $('#tweets').prepend(p);
+                p.slideDown(140);
+            };
+
+            ws.onclose = function (e) {
+                alert("socket closed:" + e);
+            };
+
+            ws.onopen = function () {
+                console.log("websocket connected");
+            };
+        });
+    </script>
+</head>
+<body>
+<div id="tweets"></div>
+</body>
+</html>

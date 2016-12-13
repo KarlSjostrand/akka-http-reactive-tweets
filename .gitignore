@@ -1,0 +1,4 @@
+target/
+/src/main/resources/my-application.conf
+.DS_Store
+.idea/
