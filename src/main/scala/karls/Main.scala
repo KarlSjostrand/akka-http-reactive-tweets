@@ -1,5 +1,7 @@
 package karls
 
+import java.net.URLEncoder
+
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.HttpHeader.ParsingResult
 import akka.http.scaladsl.model._
@@ -7,67 +9,67 @@ import akka.stream.scaladsl.{Sink, Source}
 import com.hunorkovacs.koauth.domain.KoauthRequest
 import com.hunorkovacs.koauth.service.consumer.DefaultConsumerService
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
-object Main extends App with TweetService with AkkaContext with Config {
+object Main extends App with TweetService with Config {
 
-  private val consumer = new DefaultConsumerService(system.dispatcher)
+  import AkkaContext._
 
-  val body = s"track=${twitterConfig.track.replaceAll("\\s", "%20")}"
+  val body = s"track=${URLEncoder.encode(twitterConfig.track, "utf-8")}"
 
-  val oauthHeader: Future[String] = consumer.createOauthenticatedRequest(
-    KoauthRequest(
-      method = "POST",
-      url = s"https://${twitterConfig.host}${twitterConfig.path}",
-      authorizationHeader = None,
-      body = Some(body)
-    ),
-    twitterConfig.consumerKey,
-    twitterConfig.consumerSecret,
-    twitterConfig.accessToken,
-    twitterConfig.accessTokenSecret
-  ).map(_.header)
+  val futureTweetStream = createHeaders(twitterConfig, body).flatMap { httpHeaders =>
 
-  oauthHeader.onComplete {
+    val httpRequest = HttpRequest(
+      method = HttpMethods.POST,
+      uri = twitterConfig.path,
+      headers = httpHeaders,
+      entity = HttpEntity(MediaTypes.`application/x-www-form-urlencoded`.toContentType(HttpCharsets.`UTF-8`), body)
+    )
 
-    case Success(header) =>
+    Source.single(httpRequest)
+      .via(Http().outgoingConnectionHttps(twitterConfig.host))
+      .runWith(Sink.head)
+      .map(_.entity.dataBytes)
 
-      val httpHeaders: List[HttpHeader] = List(
-        HttpHeader.parse("Authorization", header) match {
-          case ParsingResult.Ok(h, _) => Some(h)
-          case _ => None
-        },
-        HttpHeader.parse("Accept", "*/*") match {
-          case ParsingResult.Ok(h, _) => Some(h)
-          case _ => None
-        }
-      ).flatten
+  }
 
-
-      val httpRequest: HttpRequest = HttpRequest(
-        method = HttpMethods.POST,
-        uri = twitterConfig.path,
-        headers = httpHeaders,
-        entity = HttpEntity(MediaTypes.`application/x-www-form-urlencoded`.toContentType(HttpCharsets.`UTF-8`), body)
-      )
-
-      Source.single(httpRequest)
-        .via(Http().outgoingConnectionHttps(twitterConfig.host))
-        .runWith(Sink.head)
-        .onComplete {
-          case Success(response) if response.status.intValue == 200 =>
-            val tweetSource = response.entity.dataBytes
-            Http().bindAndHandle(routes(tweetSource), interface, port)
-          case Success(response) =>
-            println(s"Unexpected response: $response")
-          case Failure(e) =>
-            println("Twitter call failed")
-            e.printStackTrace()
-        }
-
+  futureTweetStream.onComplete {
+    case Success(tweetStream) =>
+      Http().bindAndHandle(routes(tweetStream), interface, port)
     case Failure(e) =>
-      println("Could not create HTTP headers")
       e.printStackTrace()
   }
+
+
+  def createHeaders(twitterConfig: TwitterConfig, body: String)(implicit executor: ExecutionContext): Future[List[HttpHeader]] = {
+    val consumer = new DefaultConsumerService(executor)
+
+    val koauthRequest = KoauthRequest(method = "POST",
+      url = s"https://${twitterConfig.host}${twitterConfig.path}",
+      body = Some(body))
+
+    consumer.createOauthenticatedRequest(
+      koauthRequest,
+      twitterConfig.consumerKey,
+      twitterConfig.consumerSecret,
+      twitterConfig.accessToken,
+      twitterConfig.accessTokenSecret
+    )
+      .map(_.header)
+      .map { header =>
+        List(
+          HttpHeader.parse("Authorization", header) match {
+            case ParsingResult.Ok(h, _) => Some(h)
+            case _ => None
+          },
+          HttpHeader.parse("Accept", "*/*") match {
+            case ParsingResult.Ok(h, _) => Some(h)
+            case _ => None
+          }
+        ).flatten
+      }
+  }
+
+
 }

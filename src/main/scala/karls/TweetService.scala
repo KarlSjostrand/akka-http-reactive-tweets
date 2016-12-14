@@ -9,11 +9,13 @@ import akka.util.ByteString
 
 import scala.concurrent.duration._
 
-trait TweetService extends AkkaContext {
+trait TweetService {
 
-  protected def routes(tweetSource: Source[ByteString, Any]): Route = {
+  import AkkaContext._
 
-    val tweets = tweetSource
+  protected def routes(tweetStream: Source[ByteString, Any]): Route = {
+
+    val tweets = tweetStream
       .via(Framing.delimiter(ByteString("\r\n"), 65536))
       .map(_.utf8String)
       .throttle(1, 2.seconds, 1, Shaping)
