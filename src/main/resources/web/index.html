@@ -11,7 +11,8 @@
                 return;
             }
 
-            var ws = new WebSocket("ws://localhost:5000/tweets");
+            var wsUrl = "ws://" + window.location.host + "/tweets";
+            var ws = new WebSocket(wsUrl);
 
             ws.onmessage = function (evt) {
                 var data = JSON.parse(evt.data);
